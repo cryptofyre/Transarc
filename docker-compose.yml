@@ -1,8 +1,7 @@
 # Unraid host paths for the Sensation server. API keys stay in the config file.
 services:
   transarc:
-    build: .
-    image: transarc:latest
+    image: ghcr.io/cryptofyre/transarc:latest
     container_name: transarc
     restart: unless-stopped
     network_mode: host

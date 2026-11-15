@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>transarc</Name>
-  <Repository>transarc:latest</Repository>
-  <Registry>https://github.com/cryptofyre/Transarc</Registry>
+  <Repository>ghcr.io/cryptofyre/transarc:latest</Repository>
+  <Registry>https://github.com/cryptofyre/Transarc/pkgs/container/transarc</Registry>
   <Network>host</Network>
   <MyIP/>
   <Shell>sh</Shell>

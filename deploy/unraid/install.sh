@@ -107,7 +107,8 @@ EOF
   echo "wrote $APP/config.yaml"
 fi
 
-docker build -t transarc:latest "$ROOT"
+image=ghcr.io/cryptofyre/transarc:latest
+docker pull "$image"
 docker rm -f transarc >/dev/null 2>&1 || true
 
 # The token stays in Preferences.xml. It is not passed with -e.
@@ -147,6 +148,7 @@ if [[ -d /boot/config/plugins/dockerMan ]]; then
     sed -i "s#<DateInstalled/>#<DateInstalled>$(date +%s)</DateInstalled>#" "$template_dir/my-transarc.xml"
     echo "installed Unraid template my-transarc.xml"
   fi
+  sed -i 's#<Repository>[^<]*</Repository>#<Repository>ghcr.io/cryptofyre/transarc:latest</Repository>#' "$template_dir/my-transarc.xml"
 fi
 
 docker run -d \
@@ -166,6 +168,6 @@ docker run -d \
   -v /mnt/user/Movies/Library:/libraries/movies \
   "${plex_run[@]}" \
   "${jelly_run[@]}" \
-  transarc:latest service
+  "$image" service
 
 echo "transarc is scheduled for 03:00 America/Chicago"

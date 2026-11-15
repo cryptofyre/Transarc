@@ -61,7 +61,7 @@ Mount every library folder you listed in the config. `/dev/dri` passes Intel gra
 
 On Unraid, `deploy/unraid/transarc.xml` and `deploy/unraid/install.sh` are a starting point. Change the folders and timezone to yours. The script writes a config only when you don't have one, and it doesn't print API keys. `PUID` 99 and `PGID` 100 match the usual Unraid user and group.
 
-Images are built for PCs and for Raspberry Pi. Once the repository is published, pull `ghcr.io/<owner>/transarc:latest`.
+Images are built for PCs and for Raspberry Pi. Pull `ghcr.io/cryptofyre/transarc:latest`.
 
 Check the cards before you compress anything:
 
