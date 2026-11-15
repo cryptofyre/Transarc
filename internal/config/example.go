@@ -1,9 +1,7 @@
 package config
 
-const Example = `# Transarc daily AV1 archival encoder.
-# Arc production uses qsv.global_quality (ICQ). Lower is higher quality.
-# NVIDIA tests use nvenc.cq. CPU and Raspberry Pi use svt.crf.
-# Those three numbers are not interchangeable.
+const Example = `# Example configuration. Edit this before you run it.
+# Change the schedule, timezone, folders, and keys for your own library.
 
 schedule: "0 3 * * *"
 timezone: America/Chicago
