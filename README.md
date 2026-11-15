@@ -73,10 +73,14 @@ docker run --rm --network host --device /dev/dri \
 
 `docker logs -f transarc` shows the next run, how much of the library is queued, and progress from each card.
 
+Inside the container, `transarc plan` prints that plan, and `transarc start` begins a pass before the schedule. From the host that is `docker exec transarc transarc plan` and `docker exec transarc transarc start`. The pass logs stay with the service.
+
 ## Commands
 
 ```text
 transarc service     keep running and compress on your schedule
+transarc plan        show the plan, including what is queued
+transarc start       start a pass now, without waiting for the schedule
 transarc run         compress the library now
 transarc scan        show what the next pass would look at
 transarc file PATH   compress one file, and keep it only when you save space

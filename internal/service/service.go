@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/cryptofyre/transarc/internal/arr"
 	"github.com/cryptofyre/transarc/internal/config"
+	"github.com/cryptofyre/transarc/internal/control"
 	"github.com/cryptofyre/transarc/internal/decide"
 	"github.com/cryptofyre/transarc/internal/disk"
 	"github.com/cryptofyre/transarc/internal/ffmpeg"
@@ -769,17 +771,16 @@ func (r *Runner) Serve(ctx context.Context) error {
 			r.setScan(p)
 		}
 	}
-	start := func() {
+	launch := func() bool {
 		if !running.CompareAndSwap(false, true) {
-			r.Log.Warn("previous pass is still running, skipping this tick")
-			return
+			return false
 		}
-		scanCancel()
-		scanWG.Wait()
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer running.Store(false)
+			scanCancel()
+			scanWG.Wait()
 			if _, err := r.Pass(ctx, Options{}); err != nil && !errors.Is(err, context.Canceled) {
 				r.Log.Error("pass: %v", err)
 			}
@@ -792,6 +793,12 @@ func (r *Runner) Serve(ctx context.Context) error {
 				r.runPrescan(ctx)
 			}
 		}()
+		return true
+	}
+	start := func() {
+		if !launch() {
+			r.Log.Warn("previous pass is still running, skipping this tick")
+		}
 	}
 	sched := cron.New(cron.WithLocation(r.Cfg.Location()))
 	if _, err := sched.AddFunc(r.Cfg.Schedule, start); err != nil {
@@ -814,6 +821,30 @@ func (r *Runner) Serve(ctx context.Context) error {
 		}()
 	}
 	go r.idlePulse(ctx, sched, &running)
+	go func() {
+		sock := control.Path(r.Cfg.StateDB)
+		err := control.Listen(ctx, sock, func(cmd string) string {
+			switch cmd {
+			case "start":
+				if !launch() {
+					return "busy\na pass is already running\n"
+				}
+				r.Log.Info("pass started from transarc start")
+				return "ok\npass started\n"
+			case "plan":
+				next := time.Time{}
+				if entries := sched.Entries(); len(entries) > 0 {
+					next = entries[0].Next
+				}
+				return r.PlanText(next, running.Load())
+			default:
+				return "unknown\n"
+			}
+		})
+		if err != nil && ctx.Err() == nil {
+			r.Log.Warn("command socket: %v", err)
+		}
+	}()
 	<-ctx.Done()
 	scanCancel()
 	r.Log.Info("shutting down")
@@ -824,7 +855,23 @@ func (r *Runner) Serve(ctx context.Context) error {
 	return nil
 }
 
+// PlanText is the same panel the service prints, for transarc plan.
+func (r *Runner) PlanText(next time.Time, running bool) string {
+	kind, title, rows := r.panel(next, false)
+	if running {
+		kind, title = "PASS", "running now"
+	}
+	var buf bytes.Buffer
+	logx.New(&buf).Schedule(kind, title, rows)
+	return buf.String()
+}
+
 func (r *Runner) announce(next time.Time, starting bool) {
+	kind, title, rows := r.panel(next, starting)
+	r.Log.Schedule(kind, title, rows)
+}
+
+func (r *Runner) panel(next time.Time, starting bool) (string, string, []string) {
 	var rows []string
 	loc := r.Cfg.Location()
 	if !next.IsZero() {
@@ -862,7 +909,7 @@ func (r *Runner) announce(next time.Time, starting bool) {
 	if starting {
 		kind, title = "START", "running now"
 	}
-	r.Log.Schedule(kind, title, rows)
+	return kind, title, rows
 }
 
 func (r *Runner) idlePulse(ctx context.Context, sched *cron.Cron, running *atomic.Bool) {

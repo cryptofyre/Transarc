@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/cryptofyre/transarc/internal/arr"
 	"github.com/cryptofyre/transarc/internal/buildinfo"
 	"github.com/cryptofyre/transarc/internal/config"
+	"github.com/cryptofyre/transarc/internal/control"
 	"github.com/cryptofyre/transarc/internal/ffmpeg"
 	"github.com/cryptofyre/transarc/internal/gpu"
 	"github.com/cryptofyre/transarc/internal/human"
@@ -43,6 +45,8 @@ test path and does not share that quality scale.`,
 	root.AddCommand(versionCmd())
 	root.AddCommand(initCmd(&configPath))
 	root.AddCommand(serviceCmd(&configPath))
+	root.AddCommand(planCmd(&configPath))
+	root.AddCommand(startCmd(&configPath))
 	root.AddCommand(runCmd(&configPath))
 	root.AddCommand(scanCmd(&configPath))
 	root.AddCommand(fileCmd(&configPath))
@@ -95,6 +99,69 @@ func serviceCmd(configPath *string) *cobra.Command {
 			}
 			defer cleanup()
 			return runner.Serve(ctx)
+		},
+	}
+}
+
+func planCmd(configPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "plan",
+		Short: "Show the plan the running service is waiting on",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := loadConfig(*configPath)
+			if err != nil {
+				return err
+			}
+			reply, err := control.Call(control.Path(cfg.StateDB), "plan")
+			if err == nil {
+				fmt.Print(reply)
+				return nil
+			}
+			if !control.Down(err) {
+				return err
+			}
+			ctx := context.Background()
+			runner, cleanup, err := open(ctx, *configPath)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			fmt.Print(runner.PlanText(time.Time{}, false))
+			return nil
+		},
+	}
+}
+
+func startCmd(configPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "start",
+		Short: "Start a pass now",
+		Long:  "Asks the running service to start a pass. If no service is listening, starts the pass in this process. Progress from a running service stays in that service's log.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := loadConfig(*configPath)
+			if err != nil {
+				return err
+			}
+			reply, err := control.Call(control.Path(cfg.StateDB), "start")
+			if err == nil {
+				fmt.Print(reply)
+				if strings.HasPrefix(reply, "busy") {
+					return errors.New("a pass is already running")
+				}
+				return nil
+			}
+			if !control.Down(err) {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			runner, cleanup, err := open(ctx, *configPath)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			_, err = runner.Pass(ctx, service.Options{})
+			return err
 		},
 	}
 }
