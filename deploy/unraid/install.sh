@@ -138,11 +138,24 @@ if [[ -d "$jelly_cfg/data" ]] && curl -fsS -m 2 -o /dev/null "http://127.0.0.1:8
   echo "jellyfin playback enabled"
 fi
 
+icon_url="https://raw.githubusercontent.com/cryptofyre/Transarc/main/assets/mark-dark.png"
+template_dir=/boot/config/plugins/dockerMan/templates-user
+if [[ -d /boot/config/plugins/dockerMan ]]; then
+  mkdir -p "$template_dir"
+  if [[ ! -f "$template_dir/my-transarc.xml" ]]; then
+    cp "$ROOT/deploy/unraid/transarc.xml" "$template_dir/my-transarc.xml"
+    sed -i "s#<DateInstalled/>#<DateInstalled>$(date +%s)</DateInstalled>#" "$template_dir/my-transarc.xml"
+    echo "installed Unraid template my-transarc.xml"
+  fi
+fi
+
 docker run -d \
   --name transarc \
   --restart unless-stopped \
   --network host \
   --device /dev/dri:/dev/dri \
+  --label net.unraid.docker.managed=dockerman \
+  --label "net.unraid.docker.icon=${icon_url}" \
   -e PUID=99 \
   -e PGID=100 \
   -e TZ=America/Chicago \
