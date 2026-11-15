@@ -1,0 +1,13 @@
+/bin/
+/transarc
+/transarc.exe
+/config.yaml
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+*.transarc.stage
+*.transarc.bak
+*.transarc.journal
+.DS_Store

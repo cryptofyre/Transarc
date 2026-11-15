@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Transarc</Name>
+  <Repository>transarc:latest</Repository>
+  <Registry/>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Daily AV1 archival encoder for the Sonarr and Radarr libraries. Uses both Intel Arc GPUs through Jellyfin FFmpeg. An encode replaces the original only when it saves the configured amount of space.</Overview>
+  <Category>MediaApp:Video</Category>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--device=/dev/dri:/dev/dri</ExtraParams>
+  <PostArgs>service</PostArgs>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/transarc" Mode="rw" Type="Path" Display="always" Required="true" Mask="false" Description="Config and state database"/>
+  <Config Name="Temp" Target="/temp" Default="/mnt/cache/transarc-tmp" Mode="rw" Type="Path" Display="always" Required="true" Mask="false" Description="Encode scratch space on the cache pool"/>
+  <Config Name="TV" Target="/libraries/tv" Default="/mnt/user/TV-Shows/Library" Mode="rw" Type="Path" Display="always" Required="true" Mask="false" Description="Sonarr library"/>
+  <Config Name="Movies" Target="/libraries/movies" Default="/mnt/user/Movies/Library" Mode="rw" Type="Path" Display="always" Required="true" Mask="false" Description="Radarr library"/>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="TZ" Target="TZ" Default="America/Chicago" Mode="" Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Plex Preferences" Target="/plex/Preferences.xml" Default="/mnt/user/appdata/binhex-plex/Plex Media Server/Preferences.xml" Mode="ro" Type="Path" Display="always" Required="false" Mask="false" Description="Read-only Preferences.xml. Transarc reads the token from this file."/>
+  <Config Name="Plex URL" Target="TRANSARC_PLEX_URL" Default="http://10.10.70.138:32400" Mode="" Type="Variable" Display="always" Required="false" Mask="false" Description="Plex on br0.2. Leave empty to disable playback checks."/>
+  <Config Name="Plex Config" Target="TRANSARC_PLEX_CONFIG" Default="/plex/Preferences.xml" Mode="" Type="Variable" Display="always" Required="false" Mask="false" Description="Path inside the container to Preferences.xml."/>
+  <Config Name="Plex Path Map" Target="TRANSARC_PLEX_PATH_MAP" Default="/tvshows/Library=/libraries/tv,/media/Library=/libraries/movies" Mode="" Type="Variable" Display="always" Required="false" Mask="false" Description="from=to pairs, separated by commas."/>
+  <Config Name="Jellyfin URL" Target="TRANSARC_JELLYFIN_URL" Default="" Mode="" Type="Variable" Display="always" Required="false" Mask="false" Description="Leave empty to disable. This host has no Jellyfin container running."/>
+  <Config Name="Jellyfin API Key" Target="TRANSARC_JELLYFIN_API_KEY" Default="" Mode="" Type="Variable" Display="always" Required="false" Mask="true" Description="Optional. Otherwise the key is read from the Jellyfin database."/>
+  <Config Name="Jellyfin Config" Target="TRANSARC_JELLYFIN_CONFIG" Default="" Mode="" Type="Variable" Display="always" Required="false" Mask="false" Description="Jellyfin config directory inside the container, containing data/jellyfin.db."/>
+  <Config Name="Jellyfin Path Map" Target="TRANSARC_JELLYFIN_PATH_MAP" Default="" Mode="" Type="Variable" Display="always" Required="false" Mask="false" Description="from=to pairs. Example: /data/tvshows=/libraries/tv,/data/movies=/libraries/movies"/>
+</Container>

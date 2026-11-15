@@ -1,0 +1,120 @@
+# Transarc daily AV1 archival encoder.
+# Arc production uses qsv.global_quality (ICQ). Lower is higher quality.
+# NVIDIA tests use nvenc.cq. CPU and Raspberry Pi use svt.crf.
+# Those three numbers are not interchangeable.
+
+schedule: "0 3 * * *"
+timezone: America/Chicago
+dry_run: false
+run_on_start: false
+temp_dir: /temp
+log_file: /config/transarc.log
+state_db: /config/transarc.db
+
+ffmpeg:
+  path: /usr/lib/jellyfin-ffmpeg/ffmpeg
+  probe_path: /usr/lib/jellyfin-ffmpeg/ffprobe
+  allow_upstream: false
+
+encoder:
+  backend: auto
+  # Leave empty to use every /dev/dri/renderD* node, or GPU 0 for NVENC.
+  gpus: []
+
+rules:
+  min_savings_percent: 10
+  min_file_size_mb: 200
+  skip_codecs: [av1]
+  extensions: [mkv, mp4, m4v, avi, ts, m2ts]
+  # 30 second sample before a full encode. Set to -1 to always full-encode.
+  sample_seconds: 30
+  sample_start_ratio: 0.2
+  retry_days: 21
+  settle_minutes: 15
+  duration_tolerance: 0.01
+  stall_minutes: 20
+  max_files_per_run: 0
+  probe_concurrency: 4
+  skip_dolby_vision_profile5: true
+
+# Intel Arc A750. ICQ 23 with veryslow and lookahead is the quality preset.
+# low_power stays on because Alchemist AV1 encode runs on that hardware path.
+qsv:
+  preset: veryslow
+  global_quality: 23
+  look_ahead_depth: 40
+  gop_seconds: 10
+  b_frames: 7
+  refs: 5
+  low_power: true
+  extbrc: true
+  adaptive_i: true
+  adaptive_b: true
+  b_strategy: true
+  bit_depth: auto
+
+# RTX / NVENC test path only. CQ 28 is not ICQ 23.
+# uhq, lookahead_level, and tf_level are NVIDIA-only. Arc does not use them.
+nvenc:
+  preset: p7
+  tune: uhq
+  cq: 28
+  lookahead: 32
+  b_frames: 4
+  aq_strength: 8
+  spatial_aq: true
+  temporal_aq: true
+  multipass: fullres
+  b_ref_mode: middle
+  gop_seconds: 10
+  bit_depth: auto
+  lookahead_level: 3
+  tf_level: 4
+
+# Software AV1 for Raspberry Pi and other hosts with no AV1 GPU.
+# CRF 32 is not ICQ 23 and not NVENC CQ 28. Preset 8 is the speed/quality
+# balance; 1 is slower and 13 is faster. One job, because SVT uses every core.
+svt:
+  preset: 8
+  crf: 32
+  gop_seconds: 10
+  bit_depth: auto
+  jobs: 1
+
+libraries:
+  - name: tv
+    path: /libraries/tv
+    arr: sonarr
+  - name: movies
+    path: /libraries/movies
+    arr: radarr
+
+sonarr:
+  url: http://127.0.0.1:8989
+  api_key: ""
+  path_map:
+    - from: /mnt/tv
+      to: /libraries/tv
+
+radarr:
+  url: http://127.0.0.1:7878
+  api_key: ""
+  path_map:
+    - from: /mnt/movies
+      to: /libraries/movies
+
+# A file open in Plex or Jellyfin, paused or playing, waits.
+# The encode continues once playback stops. Leave url empty to disable.
+# preferences is a Plex Preferences.xml file, or a Jellyfin config directory
+# that contains data/jellyfin.db. The token is read from there.
+plex:
+  url: ""
+  token: ""
+  preferences: ""
+  path_map: []
+
+jellyfin:
+  url: ""
+  api_key: ""
+  preferences: ""
+  path_map: []

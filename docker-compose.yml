@@ -1,0 +1,24 @@
+# Unraid host paths for the Sensation server. API keys stay in the config file.
+services:
+  transarc:
+    build: .
+    image: transarc:latest
+    container_name: transarc
+    restart: unless-stopped
+    network_mode: host
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      PUID: "99"
+      PGID: "100"
+      TZ: America/Chicago
+      TRANSARC_CONFIG: /config/config.yaml
+      TRANSARC_PLEX_URL: http://10.10.70.138:32400
+      TRANSARC_PLEX_CONFIG: /plex/Preferences.xml
+      TRANSARC_PLEX_PATH_MAP: /tvshows/Library=/libraries/tv,/media/Library=/libraries/movies
+    volumes:
+      - /mnt/user/appdata/transarc:/config
+      - /mnt/cache/transarc-tmp:/temp
+      - /mnt/user/TV-Shows/Library:/libraries/tv
+      - /mnt/user/Movies/Library:/libraries/movies
+      - "/mnt/user/appdata/binhex-plex/Plex Media Server/Preferences.xml:/plex/Preferences.xml:ro"
