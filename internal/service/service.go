@@ -647,10 +647,25 @@ func (r *Runner) encodeNow(ctx context.Context, gpu string, media probe.Media, i
 		total = limit
 	}
 	runner := r.FFmpeg
+	fps := media.Video.FPS
+	started := time.Now()
 	runner.OnProgress = func(p ffmpeg.Progress) {
 		pct := 0.0
 		if total > 0 {
 			pct = p.OutTime.Seconds() / total * 100
+		}
+		// With every stream mapped, ffmpeg's out_time follows the sparsest one (PGS subtitles) and
+		// stays N/A for most of the file. Frames still count, so measure by those.
+		if p.OutTime <= 0 && p.Frame > 0 && fps > 0 {
+			done := float64(p.Frame) / fps
+			if total > 0 {
+				pct = done / total * 100
+			}
+			if p.Speed <= 0 {
+				if secs := time.Since(started).Seconds(); secs > 0 {
+					p.Speed = done / secs
+				}
+			}
 		}
 		r.Log.Progress(shortGPU(gpu), filepath.Base(in), pct, p.FPS, p.Speed, p.OutBytes)
 		r.Live.Progress(in, pct, p.FPS, p.Speed, p.OutBytes)

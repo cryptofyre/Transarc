@@ -119,3 +119,30 @@ func TestProgressTime(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 }
+
+// Cover art is a second, one-frame video stream. Every video option must name the main stream,
+// or the cover goes to the encoder and the whole encode stalls.
+func TestVideoOptionsNameTheMainStreamOnly(t *testing.T) {
+	video := probe.Video{FPS: 24, BitDepth: 10, HDR: true, Width: 3840, Height: 2160}
+	for _, req := range []Request{
+		{Backend: "qsv", Device: "/dev/dri/renderD128", QSV: config.QSV{Preset: "veryslow", GlobalQuality: 23, BitDepth: "auto"}},
+		{Backend: "nvenc", Device: "0", NVENC: config.NVENC{Preset: "p7", Tune: "hq", CQ: 30, BitDepth: "10"}},
+		{Backend: "svt", SVT: config.SVT{Preset: 6, CRF: 30, BitDepth: "10"}},
+	} {
+		req.Input, req.Output, req.Video = "in.mkv", "out.mkv", video
+		args, err := Build(req)
+		if err != nil {
+			t.Fatalf("%s: %v", req.Backend, err)
+		}
+		for _, a := range args {
+			switch a {
+			case "-c:v", "-vf", "-profile:v", "-pix_fmt", "-b:v":
+				t.Errorf("%s: %s applies to every video stream, cover art included: %v", req.Backend, a, args)
+			}
+		}
+		joined := strings.Join(args, " ")
+		if !strings.Contains(joined, "-c:v:0 ") {
+			t.Errorf("%s: no encoder for the main video stream: %v", req.Backend, args)
+		}
+	}
+}

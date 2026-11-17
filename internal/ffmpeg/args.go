@@ -67,11 +67,14 @@ func buildQSV(r Request) ([]string, error) {
 	args = append(args, inputWindow(r)...)
 	args = append(args, "-i", r.Input)
 	args = append(args, mapArgs(r.MapMode)...)
+	// Every video option names the main video stream (v:0). Remuxes often carry cover art as a
+	// second, one-frame video stream; given -c:v or -vf it went to the encoder, never produced a
+	// packet, and Matroska wrote nothing until the stall watch gave up. Now it is copied.
 	args = append(args,
 		"-c", "copy",
-		"-c:v", "av1_qsv",
+		"-c:v:0", "av1_qsv",
 		"-preset", r.QSV.Preset,
-		"-profile:v", "main",
+		"-profile:v:0", "main",
 		"-global_quality", strconv.Itoa(r.QSV.GlobalQuality),
 		"-g", strconv.Itoa(gop(r.Video.FPS, r.QSV.GOPSeconds)),
 	)
@@ -101,7 +104,7 @@ func buildQSV(r Request) ([]string, error) {
 	}
 	args = append(args, "-forced_idr", "1")
 	if vf := qsvFilter(r); vf != "" {
-		args = append(args, "-vf", vf)
+		args = append(args, "-filter:v:0", vf)
 	}
 	args = append(args, colorArgs(r.Video)...)
 	args = append(args, muxArgs()...)
@@ -130,13 +133,13 @@ func buildNVENC(r Request) ([]string, error) {
 	args = append(args, mapArgs(r.MapMode)...)
 	args = append(args,
 		"-c", "copy",
-		"-c:v", "av1_nvenc",
+		"-c:v:0", "av1_nvenc",
 		"-gpu", device,
 		"-preset", r.NVENC.Preset,
 		"-tune", r.NVENC.Tune,
 		"-rc", "vbr",
 		"-cq", strconv.Itoa(r.NVENC.CQ),
-		"-b:v", "0",
+		"-b:v:0", "0",
 		"-g", strconv.Itoa(gop(r.Video.FPS, r.NVENC.GOPSeconds)),
 	)
 	if r.NVENC.SpatialAQ {
@@ -167,10 +170,10 @@ func buildNVENC(r Request) ([]string, error) {
 		args = append(args, "-tf_level", strconv.Itoa(r.NVENC.TemporalFilter))
 	}
 	if vf := nvencFilter(r); vf != "" {
-		args = append(args, "-vf", vf)
+		args = append(args, "-filter:v:0", vf)
 	}
 	if want10(r.NVENC.BitDepth, r.Video) {
-		args = append(args, "-profile:v", "main10", "-pix_fmt", "p010le")
+		args = append(args, "-profile:v:0", "main10", "-pix_fmt:v:0", "p010le")
 	}
 	args = append(args, colorArgs(r.Video)...)
 	args = append(args, muxArgs()...)
@@ -192,13 +195,13 @@ func buildSVT(r Request) ([]string, error) {
 	args = append(args, mapArgs(r.MapMode)...)
 	args = append(args,
 		"-c", "copy",
-		"-c:v", "libsvtav1",
+		"-c:v:0", "libsvtav1",
 		"-preset", strconv.Itoa(r.SVT.Preset),
 		"-crf", strconv.Itoa(r.SVT.CRF),
 		"-g", strconv.Itoa(gop(r.Video.FPS, r.SVT.GOPSeconds)),
 	)
 	if want10(r.SVT.BitDepth, r.Video) {
-		args = append(args, "-pix_fmt", "yuv420p10le")
+		args = append(args, "-pix_fmt:v:0", "yuv420p10le")
 	}
 	params := "tune=0"
 	if r.Video.HDR || r.Video.HLG {
