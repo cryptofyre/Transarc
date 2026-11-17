@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -36,6 +37,15 @@ type Config struct {
 	Radarr    Arr       `yaml:"radarr"`
 	Plex      Play      `yaml:"plex"`
 	Jellyfin  Play      `yaml:"jellyfin"`
+	API       API       `yaml:"api"`
+}
+
+// API is the optional read-only HTTP status API. An empty Listen leaves it off.
+// Listen is host:port. ":8790" listens on every interface, which under host
+// networking includes every network the server is on.
+type API struct {
+	Listen string `yaml:"listen"`
+	Token  string `yaml:"token"`
 }
 
 // FFmpeg locates the Jellyfin build used for Arc encodes.
@@ -431,6 +441,12 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("TRANSARC_FFPROBE"); v != "" {
 		c.FFmpeg.ProbePath = v
 	}
+	if v := os.Getenv("TRANSARC_API_LISTEN"); v != "" {
+		c.API.Listen = v
+	}
+	if v := os.Getenv("TRANSARC_API_TOKEN"); v != "" {
+		c.API.Token = v
+	}
 	applyPlayEnv("TRANSARC_PLEX", &c.Plex)
 	applyPlayEnv("TRANSARC_JELLYFIN", &c.Jellyfin)
 }
@@ -484,6 +500,11 @@ func (c Config) Validate() error {
 	}
 	if c.SVT.Jobs < 1 || c.SVT.Jobs > 8 {
 		return fmt.Errorf("svt.jobs must be between 1 and 8")
+	}
+	if l := strings.TrimSpace(c.API.Listen); l != "" {
+		if _, port, err := net.SplitHostPort(l); err != nil || port == "" {
+			return fmt.Errorf("api.listen %q must be host:port, for example :8790 or 10.0.0.5:8790", c.API.Listen)
+		}
 	}
 	if c.Rules.SampleStartRatio < 0 || c.Rules.SampleStartRatio >= 1 {
 		return fmt.Errorf("sample_start_ratio must be in [0, 1)")

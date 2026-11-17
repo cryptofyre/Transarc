@@ -36,5 +36,7 @@
   <Config Name="Jellyfin API Key" Target="TRANSARC_JELLYFIN_API_KEY" Default="" Mode="" Type="Variable" Display="always" Required="false" Mask="true" Description="Optional. Otherwise the key is read from the Jellyfin database."></Config>
   <Config Name="Jellyfin Config" Target="TRANSARC_JELLYFIN_CONFIG" Default="" Mode="" Type="Variable" Display="always" Required="false" Mask="false" Description="Jellyfin config directory inside the container, containing data/jellyfin.db."></Config>
   <Config Name="Jellyfin Path Map" Target="TRANSARC_JELLYFIN_PATH_MAP" Default="" Mode="" Type="Variable" Display="always" Required="false" Mask="false" Description="from=to pairs. Example: /data/tvshows=/libraries/tv,/data/movies=/libraries/movies"></Config>
+  <Config Name="API Listen" Target="TRANSARC_API_LISTEN" Default=":8790" Mode="" Type="Variable" Display="always" Required="false" Mask="false" Description="Read-only status API for dashboards, as host:port. Leave empty to turn it off. With host networking :8790 is reachable on every interface.">:8790</Config>
+  <Config Name="API Token" Target="TRANSARC_API_TOKEN" Default="" Mode="" Type="Variable" Display="always" Required="false" Mask="true" Description="Bearer token required by the API. Recommended."></Config>
   <TailscaleStateDir/>
 </Container>

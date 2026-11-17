@@ -9,6 +9,7 @@ import (
 
 	"github.com/cryptofyre/transarc/internal/human"
 	"github.com/cryptofyre/transarc/internal/library"
+	"github.com/cryptofyre/transarc/internal/live"
 	"github.com/cryptofyre/transarc/internal/state"
 )
 
@@ -43,6 +44,7 @@ func (r *Runner) runPrescan(ctx context.Context) {
 	}
 	changed := !sameScan(r.snapshotScan(), p)
 	r.setScan(p)
+	r.Live.PrescanDone(live.PrescanInfo{Files: p.Files, Candidates: p.Candidates, Skipped: p.Skipped, Settling: p.Settling, Failed: p.Failed})
 	if !changed {
 		r.Log.Info("prescan  queue %s  skip %s", comma(p.Candidates), comma(p.Skipped))
 		return

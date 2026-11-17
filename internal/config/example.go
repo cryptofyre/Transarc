@@ -118,4 +118,11 @@ jellyfin:
   api_key: ""
   preferences: ""
   path_map: []
+
+# Read-only HTTP status API for dashboards. Off while listen is empty.
+# ":8790" listens on every interface; with host networking that is every
+# network the server is on. Set a token, or bind one address.
+api:
+  listen: ""
+  token: ""
 `

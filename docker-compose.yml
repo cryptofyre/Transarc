@@ -15,6 +15,10 @@ services:
       TRANSARC_PLEX_URL: http://10.10.70.138:32400
       TRANSARC_PLEX_CONFIG: /plex/Preferences.xml
       TRANSARC_PLEX_PATH_MAP: /tvshows/Library=/libraries/tv,/media/Library=/libraries/movies
+      # Read-only status API for dashboards. Set a token: host networking
+      # exposes this port on every interface.
+      TRANSARC_API_LISTEN: ":8790"
+      TRANSARC_API_TOKEN: ""
     volumes:
       - /mnt/user/appdata/transarc:/config
       - /mnt/cache/transarc-tmp:/temp

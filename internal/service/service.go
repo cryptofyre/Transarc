@@ -17,7 +17,9 @@ import (
 
 	"github.com/robfig/cron/v3"
 
+	"github.com/cryptofyre/transarc/internal/api"
 	"github.com/cryptofyre/transarc/internal/arr"
+	"github.com/cryptofyre/transarc/internal/buildinfo"
 	"github.com/cryptofyre/transarc/internal/config"
 	"github.com/cryptofyre/transarc/internal/control"
 	"github.com/cryptofyre/transarc/internal/decide"
@@ -25,6 +27,7 @@ import (
 	"github.com/cryptofyre/transarc/internal/ffmpeg"
 	"github.com/cryptofyre/transarc/internal/gpu"
 	"github.com/cryptofyre/transarc/internal/human"
+	"github.com/cryptofyre/transarc/internal/live"
 	"github.com/cryptofyre/transarc/internal/logx"
 	"github.com/cryptofyre/transarc/internal/probe"
 	"github.com/cryptofyre/transarc/internal/replace"
@@ -51,6 +54,8 @@ type Runner struct {
 	// PlayEvery is how often an in-progress encode rechecks open sessions.
 	// Zero uses 15 seconds.
 	PlayEvery time.Duration
+	// Live receives pass and encode activity for the HTTP API. Nil is allowed.
+	Live *live.Hub
 
 	scanMu sync.Mutex
 	scan   state.Prescan
@@ -154,6 +159,10 @@ func (r *Runner) Pass(ctx context.Context, opt Options) (Summary, error) {
 		fmt.Sprintf("candidates %d   set aside %d   threshold %.0f%%", len(cands), skipped, r.minSavings(opt)),
 		fmt.Sprintf("sample %s   dry-run %t", sampleLabel(r.Cfg), opt.DryRun || r.Cfg.DryRun),
 	})
+	r.Live.PassStarted(live.PassInfo{Candidates: len(cands), SetAside: skipped, Devices: shortNames(gpus), DryRun: opt.DryRun || r.Cfg.DryRun})
+	defer func() {
+		r.Live.PassFinished(live.PassResult{Encoded: sum.Encoded, Kept: sum.Kept, Skipped: sum.Skipped, Failed: sum.Failed, SavedBytes: sum.Saved})
+	}()
 	if len(cands) == 0 {
 		return sum, nil
 	}
@@ -336,6 +345,9 @@ func (r *Runner) process(ctx context.Context, gpu string, job candidate, opt Opt
 	v := job.media.Video
 	detail := fmt.Sprintf("%s %dx%d %s  %s  audio %d  subs %d", v.Codec, v.Width, v.Height, hdrLabel(*v), human.Bytes(job.size), job.media.AudioCount, job.media.SubCount)
 	r.Log.Box("FILE", name, []string{detail, "gpu " + shortGPU(gpu)})
+	r.Live.JobStarted(job.path, live.Info{Device: shortGPU(gpu), SourceBytes: job.size, Codec: v.Codec, Width: v.Width, Height: v.Height, HDR: hdrLabel(*v)})
+	var res live.Result
+	defer func() { r.Live.JobFinished(job.path, res) }()
 	if v.DolbyVision && !dolbyProfile5(*v) {
 		r.Log.Warn("%s: Dolby Vision dynamic metadata is not retained. The HDR10 base layer is what gets encoded.", name)
 	}
@@ -343,6 +355,7 @@ func (r *Runner) process(ctx context.Context, gpu string, job candidate, opt Opt
 	minSave := r.minSavings(opt)
 	if r.Cfg.Rules.SampleSeconds > 0 && job.media.Duration > float64(r.Cfg.Rules.SampleSeconds)*3 {
 		for {
+			r.Live.Phase(job.path, live.PhaseSample)
 			worth, pct, err := r.sample(ctx, gpu, job, minSave)
 			if errors.Is(err, errWatching) {
 				if err := r.waitIdle(ctx, job.path); err != nil {
@@ -350,12 +363,16 @@ func (r *Runner) process(ctx context.Context, gpu string, job candidate, opt Opt
 				}
 				continue
 			}
+			if err == nil {
+				r.Live.Sampled(job.path, pct, worth)
+			}
 			if err != nil {
 				r.Log.Warn("sample %s failed, encoding the full file: %v", name, err)
 			} else if !worth {
 				reason := fmt.Sprintf("sample estimated %.1f%% savings", pct)
 				r.Log.Box("KEPT ORIGINAL", name, []string{reason, "threshold " + human.Pct(minSave)})
 				_ = r.put(job, "kept", reason, pct, job.size, 0, gpu)
+				res = live.Result{Outcome: "kept", Reason: reason, SourceBytes: job.size, SavingsPct: pct}
 				return "kept", 0
 			} else {
 				r.Log.Info("sample %s estimated %s savings, encoding the full file", name, human.Pct(pct))
@@ -366,11 +383,13 @@ func (r *Runner) process(ctx context.Context, gpu string, job candidate, opt Opt
 
 	if !r.spaceFor(job.path, job.size) {
 		r.Log.Warn("not enough free space to encode %s safely", name)
+		res = live.Result{Outcome: "skipped", Reason: "not enough free space", SourceBytes: job.size}
 		return "skipped", 0
 	}
 	out := tempFile(r.Cfg.TempDir, name)
 	defer os.Remove(out)
 	started := time.Now()
+	r.Live.Phase(job.path, live.PhaseEncode)
 	for {
 		err := r.encode(ctx, gpu, job.media, job.path, out, 0, 0)
 		if err == nil {
@@ -387,12 +406,14 @@ func (r *Runner) process(ctx context.Context, gpu string, job candidate, opt Opt
 		}
 		r.Log.Box("FAILED", name, []string{err.Error()})
 		_ = r.put(job, "failed", err.Error(), 0, job.size, 0, gpu)
+		res = live.Result{Outcome: "failed", Reason: err.Error(), SourceBytes: job.size}
 		return "failed", 0
 	}
 	outMedia, err := r.Probe.Inspect(ctx, out)
 	if err != nil {
 		r.Log.Box("FAILED", name, []string{"probe output: " + err.Error()})
 		_ = r.put(job, "failed", err.Error(), 0, job.size, 0, gpu)
+		res = live.Result{Outcome: "failed", Reason: "probe output: " + err.Error(), SourceBytes: job.size}
 		return "failed", 0
 	}
 	if st, err := os.Stat(out); err == nil && outMedia.Size == 0 {
@@ -410,6 +431,7 @@ func (r *Runner) process(ctx context.Context, gpu string, job candidate, opt Opt
 			fmt.Sprintf("%s -> %s", human.Bytes(job.size), human.Bytes(outMedia.Size)),
 		})
 		_ = r.put(job, "kept", post.Reason, post.SavingsPct, job.size, outMedia.Size, gpu)
+		res = live.Result{Outcome: "kept", Reason: post.Reason, SourceBytes: job.size, OutputBytes: outMedia.Size, SavingsPct: post.SavingsPct}
 		return "kept", 0
 	}
 	if err := r.waitIdle(ctx, job.path); err != nil {
@@ -418,11 +440,13 @@ func (r *Runner) process(ctx context.Context, gpu string, job candidate, opt Opt
 	fi, err := os.Stat(job.path)
 	if err != nil || fi.Size() != job.size || !fi.ModTime().Equal(job.mod) {
 		r.Log.Warn("%s changed while encoding, leaving the original in place", name)
+		res = live.Result{Outcome: "skipped", Reason: "changed while encoding", SourceBytes: job.size}
 		return "skipped", 0
 	}
 	if err := replace.Commit(job.path, out); err != nil {
 		r.Log.Box("FAILED", name, []string{"replace: " + err.Error()})
 		_ = r.put(job, "failed", err.Error(), post.SavingsPct, job.size, outMedia.Size, gpu)
+		res = live.Result{Outcome: "failed", Reason: "replace: " + err.Error(), SourceBytes: job.size, OutputBytes: outMedia.Size}
 		return "failed", 0
 	}
 	newInfo, _ := os.Stat(job.path)
@@ -446,6 +470,7 @@ func (r *Runner) process(ctx context.Context, gpu string, job candidate, opt Opt
 	if saved < 0 {
 		saved = 0
 	}
+	res = live.Result{Outcome: "encoded", Reason: post.Reason, SourceBytes: job.size, OutputBytes: newSize, SavingsPct: post.SavingsPct}
 	return "encoded", saved
 }
 
@@ -526,6 +551,7 @@ func (r *Runner) waitIdle(ctx context.Context, path string) error {
 	}
 	name := filepath.Base(path)
 	r.Log.Info("playing %s, pausing until playback stops", name)
+	r.Live.Paused(path, true)
 	tick := time.NewTicker(r.playInterval())
 	defer tick.Stop()
 	for {
@@ -535,6 +561,7 @@ func (r *Runner) waitIdle(ctx context.Context, path string) error {
 		case <-tick.C:
 			if !r.busyFresh(ctx, path) {
 				r.Log.Info("%s playback stopped, continuing", name)
+				r.Live.Paused(path, false)
 				return nil
 			}
 		}
@@ -619,6 +646,7 @@ func (r *Runner) encodeNow(ctx context.Context, gpu string, media probe.Media, i
 			pct = p.OutTime.Seconds() / total * 100
 		}
 		r.Log.Progress(shortGPU(gpu), filepath.Base(in), pct, p.FPS, p.Speed, p.OutBytes)
+		r.Live.Progress(in, pct, p.FPS, p.Speed, p.OutBytes)
 	}
 	runner.OnRetry = func(reason string) {
 		r.Log.Warn("%s: %s", filepath.Base(in), reason)
@@ -761,6 +789,9 @@ func dolbyProfile5(v probe.Video) bool {
 func (r *Runner) Serve(ctx context.Context) error {
 	var running atomic.Bool
 	var wg sync.WaitGroup
+	if r.Live == nil {
+		r.Live = live.New(256)
+	}
 	scanCtx, scanCancel := context.WithCancel(ctx)
 	defer scanCancel()
 	var scanWG sync.WaitGroup
@@ -821,6 +852,7 @@ func (r *Runner) Serve(ctx context.Context) error {
 		}()
 	}
 	go r.idlePulse(ctx, sched, &running)
+	apiDone := r.startAPI(ctx, sched)
 	go func() {
 		sock := control.Path(r.Cfg.StateDB)
 		err := control.Listen(ctx, sock, func(cmd string) string {
@@ -852,7 +884,63 @@ func (r *Runner) Serve(ctx context.Context) error {
 	stop := sched.Stop()
 	<-stop.Done()
 	wg.Wait()
+	if apiDone != nil {
+		<-apiDone
+	}
 	return nil
+}
+
+// startAPI binds the HTTP API when api.listen is set. A bind failure is a
+// warning: encoding does not depend on the API.
+func (r *Runner) startAPI(ctx context.Context, sched *cron.Cron) <-chan error {
+	listen := strings.TrimSpace(r.Cfg.API.Listen)
+	if listen == "" {
+		return nil
+	}
+	srv := &api.Server{
+		Hub:     r.Live,
+		Store:   r.Store,
+		Token:   strings.TrimSpace(r.Cfg.API.Token),
+		Version: buildinfo.Version,
+		Backend: r.Backend,
+		Devices: r.apiDevices(),
+		Next: func() time.Time {
+			if entries := sched.Entries(); len(entries) > 0 {
+				return entries[0].Next
+			}
+			return time.Time{}
+		},
+		Scan: r.snapshot,
+	}
+	addr, done, err := srv.Listen(ctx, listen)
+	if err != nil {
+		r.Log.Warn("api: %v", err)
+		return nil
+	}
+	if srv.Token == "" {
+		r.Log.Info("api listening on %s without a token", addr)
+	} else {
+		r.Log.Info("api listening on %s", addr)
+	}
+	return done
+}
+
+func (r *Runner) apiDevices() []api.Device {
+	seen := map[string]bool{}
+	var out []api.Device
+	for _, g := range r.GPUs {
+		if seen[g] {
+			continue
+		}
+		seen[g] = true
+		id := gpu.Identify(g)
+		node := id.Node
+		if node == "" {
+			node = g
+		}
+		out = append(out, api.Device{ID: shortGPU(g), Node: node, Name: id.Name})
+	}
+	return out
 }
 
 // PlanText is the same panel the service prints, for transarc plan.

@@ -90,3 +90,97 @@ transarc init        write a starter config
 ```
 
 Set `sample_seconds` to `-1` when you want every file fully compressed, with no sample first. Leave `ffmpeg.allow_upstream` off unless you mean to try a different FFmpeg build.
+
+## HTTP API
+
+A dashboard can read what the service is doing over HTTP. It is off until you set `api.listen`, or `TRANSARC_API_LISTEN`, to a `host:port` such as `:8790`. The API only reads. It cannot start a pass or change anything.
+
+With host networking, `:8790` listens on every network the server is on. Set `api.token`, or `TRANSARC_API_TOKEN`, and send it as `Authorization: Bearer <token>`. You can also bind a single address, such as `10.10.79.15:8790`. The responses include library file paths. Everything except `/api/v1/health` needs the token once one is set.
+
+If the port is taken, you get one warning and compression carries on without the API.
+
+History comes from the state database, which keeps one row per file: its latest decision. Live jobs, progress, and events are held in memory only. A restart starts them empty, and events from before the restart are not replayed.
+
+| Method and path | What you get |
+| --- | --- |
+| `GET /api/v1/health` | `{"ok": true, "version": "0.1.0"}`, with no token needed |
+| `GET /api/v1/status` | The pass, the files encoding now, all-time totals, and the last library count |
+| `GET /api/v1/history?limit=50&before=<unix>&decision=encoded,kept,failed` | Latest decision per file, newest first. `decision` also takes `skipped`, `queued` or `all`. Pass `next_before` back as `before` for the next page |
+| `GET /api/v1/queue?limit=50` | Files a prescan marked as work, largest first |
+| `GET /api/v1/events` | A Server-Sent Events stream |
+
+`/api/v1/status`:
+
+```json
+{
+  "version": "0.1.0",
+  "backend": "qsv",
+  "devices": [{ "id": "D128", "node": "renderD128", "name": "Intel Arc A750" }],
+  "pass": {
+    "running": true,
+    "started": "2026-11-16T09:00:00Z",
+    "info": { "candidates": 40, "set_aside": 860, "devices": ["D128", "D129"], "dry_run": false },
+    "next": "2026-11-17T09:00:00Z"
+  },
+  "jobs": [{
+    "path": "/libraries/movies/Scream 7 (2026)/Scream 7 (2026).mkv",
+    "name": "Scream 7 (2026).mkv",
+    "device": "D128",
+    "phase": "encode",
+    "percent": 34.9, "fps": 75, "speed": 3.1, "out_bytes": 2362232012,
+    "source_bytes": 49392123904,
+    "codec": "hevc", "width": 3840, "height": 2160, "hdr": "HDR10",
+    "sample_savings_pct": 81.2,
+    "started": "2026-11-16T19:31:02Z", "updated": "2026-11-16T20:12:17Z"
+  }],
+  "totals": { "encoded": 96, "kept": 0, "skipped": 9, "failed": 8, "saved_bytes": 4800000000000 },
+  "queue": {
+    "finished": "2026-11-16T08:42:10Z",
+    "files": 3378, "candidates": 40, "skipped": 3330, "settling": 0, "failed": 8,
+    "reasons": [{ "reason": "already av1", "n": 2900 }]
+  },
+  "time": "2026-11-16T20:12:18Z"
+}
+```
+
+`phase` is `sample`, `encode` or `paused`. A paused file is open in Plex or Jellyfin. `totals` and `queue` are `null` when there is nothing to report yet.
+
+`/api/v1/history`:
+
+```json
+{
+  "items": [{
+    "path": "/libraries/movies/Masters of the Universe (2026)/Masters of the Universe (2026).mkv",
+    "name": "Masters of the Universe (2026).mkv",
+    "decision": "encoded",
+    "reason": "savings 77.9%",
+    "size": 11059540787,
+    "source_bytes": 50251117363,
+    "output_bytes": 11059540787,
+    "saved_bytes": 39191576576,
+    "savings_pct": 77.9,
+    "device": "D129",
+    "checked": "2026-11-16T20:04:01Z"
+  }],
+  "next_before": 1794859441
+}
+```
+
+The event stream starts with a `status` event, the same document as `/api/v1/status`, and then sends events as they happen. Each stored event has an `id`. Reconnect with `Last-Event-ID`, or `?since=<id>`, to replay the last 256 events you missed. A comment line is sent every 15 seconds to keep the connection open.
+
+```text
+id: 412
+event: job.finish
+data: {"id":412,"type":"job.finish","time":"2026-11-16T20:04:01Z","path":"/libraries/movies/…/Masters of the Universe (2026).mkv","name":"Masters of the Universe (2026).mkv","data":{"outcome":"encoded","reason":"savings 77.9%","source_bytes":50251117363,"output_bytes":11059540787,"savings_pct":77.9,"device":"D129","duration_sec":2274}}
+```
+
+| Event | `data` |
+| --- | --- |
+| `pass.start` | `candidates`, `set_aside`, `devices`, `dry_run` |
+| `pass.finish` | `encoded`, `kept`, `skipped`, `failed`, `saved_bytes` |
+| `job.start` | the job, as in `status.jobs` |
+| `job.phase` | `phase` |
+| `job.sample` | `savings_pct`, `worth` |
+| `job.progress` | the job. At most one a second for each file, with no `id`, and never replayed |
+| `job.finish` | `outcome` (`encoded`, `kept`, `failed`, `skipped` or `canceled`), `reason`, `source_bytes`, `output_bytes`, `savings_pct`, `device`, `duration_sec` |
+| `prescan` | `files`, `candidates`, `skipped`, `settling`, `failed` |

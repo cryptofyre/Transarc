@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -72,6 +73,8 @@ CREATE TABLE IF NOT EXISTS files (
   checked_unix INTEGER NOT NULL,
   gpu TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS files_checked ON files(checked_unix);
+CREATE INDEX IF NOT EXISTS files_decision_size ON files(decision, size);
 CREATE TABLE IF NOT EXISTS prescan (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   finished_unix INTEGER NOT NULL,
@@ -180,6 +183,61 @@ func (s *Store) Summary() (Stats, error) {
 		}
 	}
 	return st, rows.Err()
+}
+
+const recordCols = `path, size, mod_unix, decision, reason, savings_pct, source_bytes, output_bytes, checked_unix, gpu`
+
+func scanRecords(rows *sql.Rows) ([]Record, error) {
+	defer rows.Close()
+	var out []Record
+	for rows.Next() {
+		var r Record
+		if err := rows.Scan(&r.Path, &r.Size, &r.ModUnix, &r.Decision, &r.Reason, &r.SavingsPct, &r.SourceBytes, &r.OutputBytes, &r.CheckedUnix, &r.GPU); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// Recent returns the latest decision per file, newest first.
+// before is an exclusive checked_unix bound; zero means now. An empty
+// decisions list matches every decision.
+func (s *Store) Recent(limit int, before int64, decisions []string) ([]Record, error) {
+	if limit < 1 {
+		limit = 50
+	}
+	q := `SELECT ` + recordCols + ` FROM files WHERE 1=1`
+	var args []any
+	if before > 0 {
+		q += ` AND checked_unix < ?`
+		args = append(args, before)
+	}
+	if len(decisions) > 0 {
+		q += ` AND decision IN (?` + strings.Repeat(`, ?`, len(decisions)-1) + `)`
+		for _, d := range decisions {
+			args = append(args, d)
+		}
+	}
+	q += ` ORDER BY checked_unix DESC, path LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	return scanRecords(rows)
+}
+
+// Queued returns files waiting for a pass, largest first.
+func (s *Store) Queued(limit int) ([]Record, error) {
+	if limit < 1 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`SELECT `+recordCols+` FROM files WHERE decision = 'queued' ORDER BY size DESC, path LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanRecords(rows)
 }
 
 // ReasonCount is one prescan skip bucket.
