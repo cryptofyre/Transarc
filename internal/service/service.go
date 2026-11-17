@@ -617,6 +617,13 @@ func (r *Runner) notePlay(err error) {
 
 func (r *Runner) encodeNow(ctx context.Context, gpu string, media probe.Media, in, out string, seek, limit float64) error {
 	mode := "full"
+	if limit > 0 {
+		// A sample takes the main video and the audio only. With every stream mapped, a sparse
+		// one (PGS subtitles, an attached cover) never reaches the -t limit, so ffmpeg reads on
+		// to the end of the file: tens of GB for a 30 s sample of a remux. Subtitles add next
+		// to nothing to the size estimate.
+		mode = "av"
+	}
 	req := ffmpeg.Request{
 		Backend: r.Backend,
 		Input:   in,
